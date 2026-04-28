@@ -43,7 +43,7 @@ layout — anything the input mutates is gone the moment the child `_exit()`s.
            │  ─────────────────────────►  │
            │                              │  kcov_init()        // open /sys/kernel/debug/kcov, mmap
            │                              │  kcov_start()       // KCOV_ENABLE on this task
-           │                              │  run_fs_session(s)  // every fuzz syscall happens here
+           │                              │  run_fs_session(s)  // spawns 3 worker threads (see below)
            │                              │  kcov_stop()        // KCOV_DISABLE + dump PCs
            │                              │  _exit(0)
            │  waitpid()  ◄────────────────┘
@@ -57,6 +57,126 @@ The sync pipe exists because the child's `KCOV_ENABLE` must come **after**
 the parent has finished forking and any pending parent work. Otherwise kcov
 might capture parent-side PCs that fired between `fork()` and the child's
 first instruction.
+
+---
+
+## Threading model inside the child
+
+The child does **not** execute commands serially. Once `kcov_start()` returns,
+`run_fs_session()` (in `fork_base.cc`) spawns three concurrent worker threads
+that race on the same shared filesystem state. This is what gives the harness
+its ability to find race conditions, not just sequential bugs.
+
+### Two execution modes
+
+`run_fs_session()` chooses one of two paths based on the proto's
+`concurrency_mode` field (parsed by `runtime_settings_for_session`):
+
+| Mode | Threads | When |
+|---|---|---|
+| `RuntimeMode::Off` | 1 (caller only) | Set when the input requests fully serial execution. Used for simple replay / debugging. |
+| Race mode (default) | **3** — two `std::thread`s + the calling thread | Default for normal fuzzing. |
+
+### The three workers
+
+In race mode each worker is assigned a `WorkerSemanticRole` and only executes
+commands whose op-class matches that role:
+
+| Worker | `WorkerSemanticRole` | Command op-classes it runs |
+|---|---|---|
+| `t0` | `SetupWatcher` | `kOpen`, `kOpenAt`, `kMkdir`, `kRmdir`, `kPoll`, `kReadlink`, `kGetdents`, links/unlinks |
+| `t1` | `IoAioMmap` | `kRead`, `kWrite`, `kPread`, `kPwrite`, `kReadv`, `kWritev`, AIO suite, `kMmap`/`kMsync`/`kMprotect`, `kSendmsg`/`kRecvmsg`, `kFsync`, `kFlock`, `kFtruncate`, `kSendfile`, `kCopyFileRange`, `kSplice`/`kTee`/`kVmsplice`, … |
+| `t2` (main thread) | `PathMetadata` | `kRename`/`kRenameAt2`, `kStat`, `kChmod`, `kChown`, xattrs, `kMknod`, `kMkfifo`, `kUtimes`/`kUtimensat`, `kStatx`, `kFallocate`, … |
+
+The op-class table lives in `command_op_class()` and the role filter in
+`command_matches_role()` (around `fork_base.cc:2747`). A command whose role
+doesn't match the worker that picks it up is silently skipped, so each thread
+only ever issues syscalls within its own bucket. That gives consistent
+contention shapes (e.g. "open vs. write vs. rename" rather than "all three
+threads doing identical opens").
+
+### How they share state
+
+All three workers operate on a single `Pools` instance:
+
+```cpp
+Pools shared;
+shared.shared_state = std::make_shared<Pools::SharedState>();
+shared.shared_state->interaction_tracker =
+    std::make_shared<Pools::InteractionTracker>();
+seed_workspace(shared);
+```
+
+`Pools::SharedState` (`fork_base.cc:530-548`) holds three
+`SharedHandleTable`s — `fds`, `dirfds`, and `kqfds` — each protected by its
+own `std::mutex`. So when worker `t0` opens a file, the resulting fd lands in
+`shared_state->fds`, and workers `t1` and `t2` can immediately use that same
+fd index in subsequent commands. Concurrent `read`s and `unlink`s on the same
+file *do* race at the kernel level — that's the point.
+
+The `Pools::InteractionTracker` exists to log "suspicious" cross-role
+accesses to the same kernel object (e.g. metadata thread is renaming the file
+that the IO thread just wrote to). When `FSFUZZ_LOG_SUSPICIOUS=1` is set the
+tracker prints those interleavings to stderr, useful for triaging which
+exact commands raced when a bug fires.
+
+### Determinism: why a barrier is needed
+
+Three threads racing freely on the same fd table would mean "the same
+proto-mutator input never replays the same way," which would defeat
+libFuzzer's mutation feedback (a crashing input wouldn't reproduce). To get
+both real concurrency *and* reproducibility, the workers walk through
+synchronized phases:
+
+```cpp
+DeterministicPhaseBarrier phase_barrier(kWorkerCount);
+```
+
+Each worker calls into the barrier at well-defined points (between command
+chunks). Inside a phase the three threads run freely; between phases they all
+wait at the barrier. The result is bounded nondeterminism — kernel-level
+ordering inside a phase varies, but the harness re-enters each phase with all
+three threads at the same logical position, which is enough for replay.
+
+### Where to look in the code
+
+| Function | Purpose | Approx line |
+|---|---|---|
+| `run_fs_session(sess)` | Decides between `Off` and race mode, spawns the threads | `fork_base.cc:3368` |
+| `run_worker_once(...)` | Per-thread main loop; obeys role filter and the phase barrier | `fork_base.cc:3281` |
+| `command_op_class(cmd)` | Maps a command to one of `Watch`/`Setup`/`Io`/`Aio`/`Mapping`/`PathMutation`/`Metadata`/`FdTransfer`/`Other` | `fork_base.cc:~2670` |
+| `command_matches_role(cmd, role)` | Decides whether *this* worker handles *this* command | `fork_base.cc:~2747` |
+| `Pools::SharedState`, `SharedHandleTable` | The mutex-protected fd / dirfd tables shared across the three threads | `fork_base.cc:530` |
+| `DeterministicPhaseBarrier` | Lock-step phase boundaries | search the file |
+
+### Updated per-iteration picture
+
+```
+libFuzzer                 parent                child
+   │                        │                     │
+   │  TestOneInput() ──────►│                     │
+   │                        │  save_input(...)    │
+   │                        │  fork() ───────────►│
+   │                        │                     │  kcov_init / kcov_start
+   │                        │                     │  run_fs_session()
+   │                        │                     │       │
+   │                        │                     │       ├──► t0 (SetupWatcher)
+   │                        │                     │       ├──► t1 (IoAioMmap)
+   │                        │                     │       └──► t2 (PathMetadata, this thread)
+   │                        │                     │            ↑↑↑ all three race on shared fd table,
+   │                        │                     │                synchronized via DeterministicPhaseBarrier
+   │                        │                     │       │
+   │                        │                     │       ▼ join + cleanup_session
+   │                        │                     │  kcov_stop  (folds PCs into g_kcov_shared)
+   │                        │                     │  _exit
+   │                        │  waitpid ◄──────────┘
+   │                        │  kcov_merge        (g_kcov_shared → libfuzzer_coverage)
+   │  ◄───── return ────────│
+```
+
+So inside one libFuzzer iteration, ntfs3 is being hit by **three contending
+kernel tasks** with shared fds — that's the structure that makes this harness
+useful for finding races, not just sequential bugs.
 
 ---
 
