@@ -1,0 +1,600 @@
+syntax = "proto2";
+
+// Linux filesystem fuzz harness wire format. Darwin-specific operations from
+// previous versions of this proto (chflags, attrlist suite, copyfile/clonefile,
+// kqueue/kevent, fsctl, etc.) have been removed. A small set of Linux-only
+// operations (fallocate, copy_file_range, sendfile, renameat2, fdatasync,
+// utimensat, madvise) are added in their place.
+
+message Session {
+  repeated Command commands = 1;
+  required bytes   data_provider = 4;
+  repeated ThreadCommandList thread_streams = 5;
+  optional uint32 concurrency_mode = 6 [default = 0];
+  optional uint32 delay_seed = 7 [default = 0];
+}
+
+message ThreadCommandList {
+  repeated Command commands = 1;
+  optional uint32 worker_role = 2 [default = 0];
+}
+
+message Command {
+  oneof command {
+    // ---- Create/Open/Close ----
+    Open        open         = 1;
+    OpenAt      open_at      = 2;
+    Close       close        = 3;
+    Dup         dup          = 4;
+    Dup2        dup2         = 5;
+    Fcntl       fcntl        = 6;
+    Pipe        pipe         = 7;
+    Socketpair  socketpair   = 8;
+    Poll        poll         = 9;
+
+    // ---- Links & Unlinks ----
+    Link        link         = 10;
+    LinkAt      link_at      = 11;
+    Unlink      unlink       = 12;
+    UnlinkAt    unlink_at    = 13;
+
+    // ---- Directories ----
+    Mkdir       mkdir        = 20;
+    MkdirAt     mkdir_at     = 21;
+    Rmdir       rmdir        = 22;
+    Chdir       chdir        = 23;
+    Fchdir      fchdir       = 24;
+
+    // ---- Symlinks ----
+    Symlink     symlink      = 30;
+    SymlinkAt   symlink_at   = 31;
+    Readlink    readlink     = 32;
+    ReadlinkAt  readlink_at  = 33;
+
+    // ---- Rename ----
+    Rename      rename       = 40;
+    RenameAt    rename_at    = 41;
+    RenameAt2   rename_at2   = 42;
+
+    // ---- Metadata ----
+    Stat        stat         = 50;
+    Lstat       lstat        = 51;
+    Fstat       fstat        = 52;
+    FstatAt     fstat_at     = 53;
+
+    Chmod       chmod        = 54;
+    Fchmod      fchmod       = 55;
+    FchmodAt    fchmod_at    = 56;
+
+    Chown       chown        = 57;
+    Lchown      lchown       = 58;
+    FchownAt    fchown_at    = 59;
+
+    Umask       umask        = 62;
+
+    Access      access       = 63;
+    FaccessAt   faccess_at   = 64;
+
+    // ---- Extended attributes (Linux: no `position` argument) ----
+    Getxattr     getxattr     = 70;
+    Fgetxattr    fgetxattr    = 71;
+    Setxattr     setxattr     = 72;
+    Fsetxattr    fsetxattr    = 73;
+    Removexattr  removexattr  = 74;
+    Fremovexattr fremovexattr = 75;
+    Listxattr    listxattr    = 76;
+    Flistxattr   flistxattr   = 77;
+
+    // ---- Data ops ----
+    Read        read         = 80;
+    Write       write        = 81;
+    Pread       pread        = 82;
+    Pwrite      pwrite       = 83;
+    Readv       readv        = 88;
+    Writev      writev       = 89;
+
+    // POSIX AIO (librt on Linux)
+    AioRead     aio_read     = 139;
+    AioWrite    aio_write    = 140;
+    AioError    aio_error    = 141;
+    AioReturn   aio_return   = 142;
+    AioSuspend  aio_suspend  = 143;
+    AioCancel   aio_cancel   = 144;
+    AioFsync    aio_fsync    = 145;
+    LioListio   lio_listio   = 146;
+
+    Mmap        mmap         = 147;
+    Munmap      munmap       = 148;
+    Msync       msync        = 149;
+    Mprotect    mprotect     = 150;
+    Madvise     madvise      = 153;
+
+    Sendmsg     sendmsg      = 151;
+    Recvmsg     recvmsg      = 152;
+
+    Truncate    truncate     = 84;
+    Ftruncate   ftruncate    = 85;
+    Lseek       lseek        = 92;
+    Getdents    getdents     = 93;
+
+    Fsync       fsync        = 86;
+    Fdatasync   fdatasync    = 96;
+    Flock       flock        = 87;
+    Sync        sync         = 94;
+
+    // ---- FS stats ----
+    Statfs      statfs       = 90;
+    Fstatfs     fstatfs      = 91;
+
+    // ---- Node creation ----
+    Mknod       mknod        = 100;
+    MknodAt     mknod_at     = 101;
+    Mkfifo      mkfifo       = 102;
+    MkfifoAt    mkfifo_at    = 103;
+
+    // ---- Path-scoped state ----
+    Utimes      utimes       = 110;
+    Utimensat   utimensat    = 115;
+    Acct        acct         = 111;
+    Chroot      chroot       = 113;
+
+    // ---- Linux-specific file ops ----
+    Fallocate     fallocate         = 130;
+    CopyFileRange copy_file_range   = 131;
+    Sendfile      sendfile          = 132;
+    Splice        splice            = 133;
+    Tee           tee               = 134;
+    Vmsplice      vmsplice          = 135;
+    Fadvise       fadvise           = 136;
+    Readahead     readahead         = 137;
+    SyncFileRange sync_file_range   = 138;
+    Syncfs        syncfs            = 154;
+    Dup3          dup3              = 155;
+    MemfdCreate   memfd_create      = 156;
+    CloseRange    close_range       = 157;
+    Statx         statx             = 158;
+
+    // ---- Scatter/gather I/O with explicit file offset (POSIX) ----
+    Preadv      preadv       = 162;
+    Pwritev     pwritev      = 163;
+  }
+}
+
+// ========= Messages =========
+
+message Open {
+  optional uint32 path_idx = 1;
+  optional uint32 flags    = 2 [default = 0];
+  optional uint32 mode     = 3 [default = 420];
+  optional bool   ensure_dir = 4 [default = false];
+}
+
+message OpenAt {
+  optional int32  dirfd_idx = 1;
+  optional uint32 flags     = 2 [default = 0];
+  optional uint32 mode      = 3 [default = 420];
+  optional bool   ensure_dir= 4 [default = false];
+  optional bytes  name_hint = 5;
+}
+
+message Close { required uint32 fd_idx = 1; }
+message Dup   { required uint32 fd_idx = 1; }
+message Dup2  { required uint32 old_fd_idx = 1; optional uint32 new_fd = 2 [default = 0]; }
+message Fcntl {
+  required uint32 fd_idx = 1;
+  optional uint32 cmd    = 2 [default = 0];
+  optional uint32 arg    = 3 [default = 0];
+}
+message Pipe {
+  optional bool cloexec  = 1 [default = false];
+  optional bool nonblock = 2 [default = true];
+}
+message Socketpair {
+  optional uint32 domain = 1 [default = 0];
+  optional uint32 type   = 2 [default = 0];
+  optional uint32 proto  = 3 [default = 0];
+}
+message Poll {
+  repeated uint32 fd_idx = 1;
+  optional uint32 events = 2 [default = 0];
+  optional int32 timeout_ms = 3 [default = 0];
+}
+
+message Link  { required uint32 existing_path_idx = 1; optional uint32 new_path_idx = 2; }
+message LinkAt {
+  optional int32  olddirfd_idx = 1;
+  optional int32  newdirfd_idx = 2;
+  required bytes  oldname      = 3;
+  required bytes  newname      = 4;
+  optional bool   follow_symlink = 5 [default = true];
+}
+
+message Unlink   { required uint32 path_idx = 1; }
+message UnlinkAt {
+  optional int32  dirfd_idx = 1;
+  required bytes  name     = 2;
+}
+
+message Mkdir    { optional uint32 path_idx = 1; optional uint32 mode = 2 [default = 493]; }
+message MkdirAt  { optional int32  dirfd_idx = 1; required bytes  name= 2; optional uint32 mode = 3 [default = 493]; }
+message Rmdir    { required uint32 path_idx = 1; }
+message Chdir    { required uint32 path_idx = 1; }
+message Fchdir   { required uint32 fd_idx   = 1; }
+
+message Symlink  { required uint32 target_path_idx = 1; optional uint32 link_path_idx = 2; }
+message SymlinkAt{
+  optional int32  newdirfd_idx = 1;
+  required bytes  target       = 2;
+  required bytes  linkname     = 3;
+}
+message Readlink { required uint32 path_idx = 1; }
+message ReadlinkAt {
+  optional int32  dirfd_idx = 1;
+  required bytes  name     = 2;
+}
+
+message Rename   { required uint32 old_path_idx = 1; optional uint32 new_path_idx = 2; }
+message RenameAt {
+  optional int32  olddirfd_idx = 1;
+  required bytes  oldname      = 2;
+  optional int32  newdirfd_idx = 3;
+  required bytes  newname      = 4;
+}
+// renameat2(2) — Linux-specific extra flags (RENAME_NOREPLACE, RENAME_EXCHANGE,
+// RENAME_WHITEOUT).
+message RenameAt2 {
+  optional int32  olddirfd_idx = 1;
+  required bytes  oldname      = 2;
+  optional int32  newdirfd_idx = 3;
+  required bytes  newname      = 4;
+  optional uint32 flags        = 5 [default = 0];
+}
+
+message Stat     { required uint32 path_idx = 1; }
+message Lstat    { required uint32 path_idx = 1; }
+message Fstat    { required uint32 fd_idx   = 1; }
+message FstatAt  { optional int32 dirfd_idx = 1; required bytes  name= 2; optional uint32 flags = 3 [default = 0]; }
+
+message Chmod    { required uint32 path_idx = 1; required uint32 mode = 2; }
+message Fchmod   { required uint32 fd_idx   = 1; required uint32 mode = 2; }
+message FchmodAt { optional int32 dirfd_idx = 1; required bytes  name= 2; required uint32 mode = 3; optional uint32 flags = 4 [default = 0]; }
+
+message Chown    { required uint32 path_idx = 1; optional int32 uid = 2; optional int32 gid = 3; }
+message Lchown   { required uint32 path_idx = 1; optional int32 uid = 2; optional int32 gid = 3; }
+message FchownAt { optional int32 dirfd_idx = 1; required bytes  name= 2; optional int32 uid = 3; optional int32 gid = 4; optional uint32 flags = 5 [default = 0]; }
+
+message Umask    { required uint32 mask = 1; }
+
+message Access   { required uint32 path_idx = 1; required uint32 mode = 2; }
+message FaccessAt{ optional int32 dirfd_idx = 1; required bytes  name= 2; required uint32 mode = 3; optional uint32 flags = 4 [default = 0]; }
+
+// Linux xattrs. The l*xattr variants are used when follow_symlink=false.
+message Getxattr     { required uint32 path_idx = 1; required bytes  name= 2; optional uint32 buf_size = 3 [default = 1024]; optional bool follow_symlink = 4 [default = true]; }
+message Fgetxattr    { required uint32 fd_idx   = 1; required bytes  name= 2; optional uint32 buf_size = 3 [default = 1024]; }
+message Setxattr     { required uint32 path_idx = 1; required bytes  name= 2; optional bytes value = 3; optional uint32 flags = 4 [default = 0]; optional bool follow_symlink = 5 [default = true]; }
+message Fsetxattr    { required uint32 fd_idx   = 1; required bytes  name= 2; optional bytes value = 3; optional uint32 flags = 4 [default = 0]; }
+message Removexattr  { required uint32 path_idx = 1; required bytes  name= 2; optional bool follow_symlink = 3 [default = true]; }
+message Fremovexattr { required uint32 fd_idx   = 1; required bytes  name= 2; }
+message Listxattr    { required uint32 path_idx = 1; optional uint32 buf_size = 2 [default = 1024]; optional bool follow_symlink = 3 [default = true]; }
+message Flistxattr   { required uint32 fd_idx   = 1; optional uint32 buf_size = 2 [default = 1024]; }
+
+// I/O
+message Read     { required uint32 fd_idx = 1; optional uint32 maxlen = 2 [default = 4096]; }
+message Write    { required uint32 fd_idx = 1; optional bytes data = 2; }
+message Pread    { required uint32 fd_idx = 1; optional uint64 off = 2 [default = 0]; optional uint32 maxlen = 3 [default = 4096]; }
+message Pwrite   { required uint32 fd_idx = 1; optional uint64 off = 2 [default = 0]; optional bytes data = 3; }
+message Readv    { required uint32 fd_idx = 1; optional uint32 iovcnt = 2 [default = 4]; optional uint32 maxlen = 3 [default = 4096]; }
+message Writev   { required uint32 fd_idx = 1; repeated bytes data = 2; }
+
+message AioRead  {
+  required uint32 fd_idx     = 1;
+  optional uint64 off        = 2 [default = 0];
+  optional uint32 maxlen     = 3 [default = 4096];
+  optional uint32 req_idx    = 4 [default = 0];
+  optional int32  reqprio    = 5 [default = 0];
+  optional uint32 lio_opcode = 6 [default = 1];
+  optional bool   use_sigev  = 7 [default = false];
+  optional int32  sigev_signo = 8 [default = 0];
+  optional int32  sigev_value = 9 [default = 0];
+}
+message AioWrite {
+  required uint32 fd_idx     = 1;
+  optional uint64 off        = 2 [default = 0];
+  optional bytes  data       = 3;
+  optional uint32 req_idx    = 4 [default = 0];
+  optional int32  reqprio    = 5 [default = 0];
+  optional uint32 lio_opcode = 6 [default = 2];
+  optional bool   use_sigev  = 7 [default = false];
+  optional int32  sigev_signo = 8 [default = 0];
+  optional int32  sigev_value = 9 [default = 0];
+}
+message AioError  { required uint32 req_idx = 1; }
+message AioReturn { required uint32 req_idx = 1; }
+message AioSuspend {
+  repeated uint32 req_idx    = 1;
+  optional uint32 timeout_ms = 2 [default = 0];
+}
+message AioCancel {
+  required uint32 fd_idx     = 1;
+  optional uint32 req_idx    = 2;
+}
+message AioFsync {
+  required uint32 req_idx    = 1;
+  optional uint32 op         = 2 [default = 0];
+}
+message LioEntry {
+  required uint32 fd_idx      = 1;
+  optional uint64 off         = 2 [default = 0];
+  optional bytes  data        = 3;
+  optional uint32 maxlen      = 4 [default = 4096];
+  optional uint32 req_idx     = 5 [default = 0];
+  optional int32  reqprio     = 6 [default = 0];
+  optional uint32 opcode      = 7 [default = 0];
+  optional bool   use_sigev   = 8 [default = false];
+  optional int32  sigev_signo = 9 [default = 0];
+  optional int32  sigev_value = 10 [default = 0];
+}
+message LioListio {
+  repeated LioEntry entries   = 1;
+  optional uint32 mode        = 2 [default = 0];
+  optional bool   use_sigp    = 3 [default = false];
+  optional int32  sigev_signo = 4 [default = 0];
+  optional int32  sigev_value = 5 [default = 0];
+}
+
+message Mmap {
+  required uint32 fd_idx      = 1;
+  optional uint32 len         = 2 [default = 4096];
+  optional uint32 prot        = 3 [default = 0];
+  optional uint32 flags       = 4 [default = 0];
+  optional uint64 off         = 5 [default = 0];
+}
+message Munmap { required uint32 map_idx = 1; }
+message Msync {
+  required uint32 map_idx     = 1;
+  optional uint32 flags       = 2 [default = 0];
+}
+message Mprotect {
+  required uint32 map_idx     = 1;
+  optional uint32 prot        = 2 [default = 0];
+}
+message Madvise {
+  required uint32 map_idx     = 1;
+  optional uint32 advice      = 2 [default = 0];
+}
+
+message Sendmsg {
+  required uint32 sock_fd_idx = 1;
+  optional bytes  data        = 2;
+  optional bool   send_rights = 3 [default = false];
+  optional uint32 rights_fd_idx = 4 [default = 0];
+}
+message Recvmsg {
+  required uint32 sock_fd_idx = 1;
+  optional uint32 maxlen      = 2 [default = 256];
+  optional bool   accept_rights = 3 [default = true];
+}
+
+message Truncate { required uint32 path_idx = 1; required uint64 len = 2; }
+message Ftruncate{ required uint32 fd_idx   = 1; required uint64 len = 2; }
+message Lseek    { required uint32 fd_idx   = 1; optional int64 off = 2 [default = 0]; optional uint32 whence = 3 [default = 0]; }
+// getdents64(2): reads directory entries from a directory fd.
+message Getdents { required uint32 fd_idx = 1; optional uint32 count = 2 [default = 4096]; }
+
+message Fsync     { required uint32 fd_idx = 1; }
+message Fdatasync { required uint32 fd_idx = 1; }
+message Flock     { required uint32 fd_idx = 1; required uint32 op = 2; }
+message Sync      {}
+
+message Statfs   { required uint32 path_idx = 1; }
+message Fstatfs  { required uint32 fd_idx   = 1; }
+
+message Mknod {
+  optional uint32 path_idx    = 1;
+  required uint32 mode        = 2;
+  optional uint32 dev         = 3 [default = 0];
+  optional bool   ensure_dir  = 4 [default = false];
+}
+message MknodAt {
+  optional int32  dirfd_idx   = 1;
+  required bytes  name       = 2;
+  required uint32 mode        = 3;
+  optional uint32 dev         = 4 [default = 0];
+  optional bool   ensure_dir  = 5 [default = false];
+}
+message Mkfifo {
+  optional uint32 path_idx    = 1;
+  optional uint32 mode        = 2 [default = 420];
+  optional bool   ensure_dir  = 3 [default = false];
+}
+message MkfifoAt {
+  optional int32  dirfd_idx   = 1;
+  required bytes  name       = 2;
+  optional uint32 mode        = 3 [default = 420];
+  optional bool   ensure_dir  = 4 [default = false];
+}
+
+message Utimes {
+  required uint32 path_idx    = 1;
+  optional int64  atime_sec   = 2 [default = 0];
+  optional int64  atime_usec  = 3 [default = 0];
+  optional int64  mtime_sec   = 4 [default = 0];
+  optional int64  mtime_usec  = 5 [default = 0];
+}
+message Utimensat {
+  optional int32  dirfd_idx   = 1;
+  required bytes  name       = 2;
+  optional int64  atime_sec   = 3 [default = 0];
+  optional int64  atime_nsec  = 4 [default = 0];
+  optional int64  mtime_sec   = 5 [default = 0];
+  optional int64  mtime_nsec  = 6 [default = 0];
+  optional uint32 flags       = 7 [default = 0];
+}
+message Acct     { required uint32 path_idx = 1; }
+message Chroot   { required uint32 path_idx = 1; }
+
+// Linux-specific file ops
+message Fallocate {
+  required uint32 fd_idx = 1;
+  optional uint32 mode   = 2 [default = 0]; // 0 | FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE | …
+  optional uint64 offset = 3 [default = 0];
+  optional uint64 len    = 4 [default = 4096];
+}
+message CopyFileRange {
+  required uint32 in_fd_idx   = 1;
+  required uint32 out_fd_idx  = 2;
+  optional uint64 in_off      = 3 [default = 0];
+  optional uint64 out_off     = 4 [default = 0];
+  optional uint32 len         = 5 [default = 4096];
+  optional uint32 flags       = 6 [default = 0];
+  optional bool   use_in_off  = 7 [default = false];
+  optional bool   use_out_off = 8 [default = false];
+}
+message Sendfile {
+  required uint32 out_fd_idx = 1;
+  required uint32 in_fd_idx  = 2;
+  optional uint64 offset     = 3 [default = 0];
+  optional uint32 len        = 4 [default = 4096];
+  optional bool   use_offset = 5 [default = false];
+}
+
+// splice / tee / vmsplice: kernel pipe-buffer plumbing. The harness always
+// ORs SPLICE_F_NONBLOCK into the flags so these never wait on a pipe end.
+message Splice {
+  required uint32 fd_in_idx   = 1;
+  required uint32 fd_out_idx  = 2;
+  optional uint64 off_in      = 3 [default = 0];
+  optional uint64 off_out     = 4 [default = 0];
+  optional uint32 len         = 5 [default = 4096];
+  optional uint32 flags       = 6 [default = 0];
+  optional bool   use_off_in  = 7 [default = false];
+  optional bool   use_off_out = 8 [default = false];
+}
+message Tee {
+  required uint32 fd_in_idx  = 1;
+  required uint32 fd_out_idx = 2;
+  optional uint32 len        = 3 [default = 4096];
+  optional uint32 flags      = 4 [default = 0];
+}
+message Vmsplice {
+  required uint32 fd_idx = 1;
+  repeated bytes  data   = 2;
+  optional uint32 flags  = 3 [default = 0];
+}
+
+// posix_fadvise64(2): hint, never blocks.
+message Fadvise {
+  required uint32 fd_idx = 1;
+  optional uint64 offset = 2 [default = 0];
+  optional uint64 len    = 3 [default = 0];
+  optional uint32 advice = 4 [default = 0];
+}
+
+// readahead(2): schedules a prefetch; can be slow but never blocks the caller.
+message Readahead {
+  required uint32 fd_idx = 1;
+  optional uint64 offset = 2 [default = 0];
+  optional uint32 count  = 3 [default = 4096];
+}
+
+// sync_file_range(2): only the SYNC_FILE_RANGE_WRITE bit is exposed; the
+// WAIT_BEFORE / WAIT_AFTER bits would cause the call to block.
+message SyncFileRange {
+  required uint32 fd_idx = 1;
+  optional uint64 offset = 2 [default = 0];
+  optional uint64 nbytes = 3 [default = 0];
+  optional uint32 flags  = 4 [default = 0];
+}
+
+// syncfs(2): like sync(), gated by FSFUZZ_AVOID_FSYNC at compile time.
+message Syncfs { required uint32 fd_idx = 1; }
+
+// dup3(2): like dup2 but accepts O_CLOEXEC.
+message Dup3 {
+  required uint32 old_fd_idx = 1;
+  required uint32 new_fd_idx = 2;
+  optional uint32 flags      = 3 [default = 0];
+}
+
+// memfd_create(2): anonymous file in tmpfs with optional file sealing.
+message MemfdCreate {
+  optional bytes  name  = 1;
+  optional uint32 flags = 2 [default = 0];
+}
+
+// close_range(2): closes [first..last]. The harness clamps the range to
+// avoid touching protected fds.
+message CloseRange {
+  optional uint32 first = 1 [default = 0];
+  optional uint32 last  = 2 [default = 0];
+  optional uint32 flags = 3 [default = 0];
+}
+
+// statx(2): extended stat with explicit field mask.
+message Statx {
+  optional int32  dirfd_idx = 1;
+  required bytes  name     = 2;
+  optional uint32 flags     = 3 [default = 0];
+  optional uint32 mask      = 4 [default = 2047]; // STATX_BASIC_STATS
+}
+
+message Preadv {
+  required uint32 fd_idx   = 1;
+  optional uint64 offset   = 2 [default = 0];
+  optional uint32 iovcnt   = 3 [default = 4];
+  optional uint32 maxlen   = 4 [default = 4096];
+}
+message Pwritev {
+  required uint32 fd_idx   = 1;
+  optional uint64 offset   = 2 [default = 0];
+  repeated bytes  data     = 3;
+}
+
+// ========= Enums =========
+
+// Linux open(2) flag selector. The harness translates these into the actual
+// kernel-level O_* bits.
+enum OpenFlag {
+  OF_RDONLY    = 0;
+  OF_WRONLY    = 1;
+  OF_RDWR      = 2;
+  OF_CREAT     = 3;
+  OF_TRUNC     = 4;
+  OF_EXCL      = 5;
+  OF_APPEND    = 6;
+  OF_CLOEXEC   = 7;
+  OF_DIRECTORY = 8;
+  OF_NOFOLLOW  = 9;
+  OF_NONBLOCK  = 10;
+  OF_SYNC      = 11;
+  OF_DSYNC     = 12;
+  OF_RSYNC     = 13;
+  OF_DIRECT    = 14;
+  OF_NOATIME   = 15;
+  OF_PATH      = 16;
+  OF_TMPFILE   = 17;
+  OF_LARGEFILE = 18;
+  OF_ASYNC     = 19;
+  OF_NOCTTY    = 20;
+}
+
+enum AccessMode { A_F=0; A_R=1; A_W=2; A_X=3; }
+
+enum FlockOp {
+  FLOK_SH = 1;
+  FLOK_EX = 2;
+  FLOK_UN = 3;
+  FLOK_NB = 4;
+}
+
+enum ConcurrencyModeHint {
+  CONCURRENCY_MODE_DEFAULT = 0;
+  CONCURRENCY_MODE_FAST    = 1;
+  CONCURRENCY_MODE_RACE    = 2;
+}
+
+enum WorkerRoleHint {
+  ROLE_SETUP_WATCHER   = 0;
+  ROLE_IO_AIO_MMAP     = 1;
+  ROLE_PATH_METADATA   = 2;
+}
